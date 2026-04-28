@@ -54,6 +54,13 @@ tasks:
     cmds:
       - go test -run='^$' -bench='.' -benchmem -count=1 ./...
 
+  ci:
+    desc: Full CI pipeline (lint + test + build)
+    cmds:
+      - task: lint
+      - task: test
+      - task: build
+
   clean:
     desc: Remove build artifacts
     cmds:
