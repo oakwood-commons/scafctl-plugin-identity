@@ -174,6 +174,11 @@ func (p *Plugin) ExecuteProvider(ctx context.Context, _ string, inputs map[strin
 		return nil, fmt.Errorf("%s: scope is not supported for the %q operation; it can only be used with 'claims' or 'status'", ProviderName, operation)
 	}
 
+	// Dry-run support: return synthetic output without requiring the host client.
+	if sdkprovider.DryRunFromContext(ctx) {
+		return executeDryRun(operation, handlerName, scope)
+	}
+
 	hostClient := sdkplugin.HostClientFromContext(ctx)
 	if hostClient == nil {
 		return nil, fmt.Errorf("%s: host client not available; auth operations require the host to provide authentication services", ProviderName)
@@ -576,4 +581,36 @@ func populateStatusFromProtoClaims(result map[string]any, c *proto.Claims) {
 			result["expiresIn"] = "expired"
 		}
 	}
+}
+
+// executeDryRun returns synthetic output for dry-run mode.
+func executeDryRun(operation, handlerName, scope string) (*sdkprovider.Output, error) {
+	data := map[string]any{
+		"operation":     operation,
+		"authenticated": false,
+	}
+
+	if handlerName != "" {
+		data["handler"] = handlerName
+	}
+
+	if scope != "" {
+		data["scopedToken"] = true
+		data["tokenScope"] = scope
+	}
+
+	switch operation {
+	case "status":
+		data["identityType"] = "unknown"
+	case "claims":
+		// No additional fields needed beyond operation/authenticated
+	case "groups":
+		data["groups"] = []string{}
+	case "list":
+		data["handlers"] = []string{}
+	}
+
+	return &sdkprovider.Output{
+		Data: data,
+	}, nil
 }
