@@ -590,10 +590,6 @@ func executeDryRun(operation, handlerName, scope string) (*sdkprovider.Output, e
 		"authenticated": false,
 	}
 
-	if handlerName != "" {
-		data["handler"] = handlerName
-	}
-
 	if scope != "" {
 		data["scopedToken"] = true
 		data["tokenScope"] = scope
@@ -601,13 +597,27 @@ func executeDryRun(operation, handlerName, scope string) (*sdkprovider.Output, e
 
 	switch operation {
 	case "status":
-		data["identityType"] = "unknown"
+		// Live executeStatus always includes handler; omits identityType when unauthenticated.
+		data["handler"] = handlerName
 	case "claims":
-		// No additional fields needed beyond operation/authenticated
+		// Live executeClaims always includes handler and claims (nil when unauthenticated).
+		data["handler"] = handlerName
+		data["claims"] = nil
+		return &sdkprovider.Output{
+			Data:     data,
+			Warnings: []string{"not authenticated - no claims available"},
+		}, nil
 	case "groups":
+		// Live executeGroups always includes handler, groups, and count.
+		data["handler"] = handlerName
 		data["groups"] = []string{}
+		data["count"] = 0
 	case "list":
-		data["handlers"] = []string{}
+		// Live executeList never includes a handler key.
+		data["handlers"] = []map[string]any{}
+		data["count"] = 0
+	default:
+		return nil, fmt.Errorf("%s: unsupported operation: %s", ProviderName, operation)
 	}
 
 	return &sdkprovider.Output{
