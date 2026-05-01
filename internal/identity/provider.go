@@ -174,6 +174,11 @@ func (p *Plugin) ExecuteProvider(ctx context.Context, _ string, inputs map[strin
 		return nil, fmt.Errorf("%s: scope is not supported for the %q operation; it can only be used with 'claims' or 'status'", ProviderName, operation)
 	}
 
+	// Dry-run support: return synthetic output without requiring the host client.
+	if sdkprovider.DryRunFromContext(ctx) {
+		return executeDryRun(operation, handlerName, scope)
+	}
+
 	hostClient := sdkplugin.HostClientFromContext(ctx)
 	if hostClient == nil {
 		return nil, fmt.Errorf("%s: host client not available; auth operations require the host to provide authentication services", ProviderName)
@@ -576,4 +581,46 @@ func populateStatusFromProtoClaims(result map[string]any, c *proto.Claims) {
 			result["expiresIn"] = "expired"
 		}
 	}
+}
+
+// executeDryRun returns synthetic output for dry-run mode.
+func executeDryRun(operation, handlerName, scope string) (*sdkprovider.Output, error) {
+	data := map[string]any{
+		"operation":     operation,
+		"authenticated": false,
+	}
+
+	if scope != "" {
+		data["scopedToken"] = true
+		data["tokenScope"] = scope
+	}
+
+	switch operation {
+	case "status":
+		// Live executeStatus always includes handler; omits identityType when unauthenticated.
+		data["handler"] = handlerName
+	case "claims":
+		// Live executeClaims always includes handler and claims (nil when unauthenticated).
+		data["handler"] = handlerName
+		data["claims"] = nil
+		return &sdkprovider.Output{
+			Data:     data,
+			Warnings: []string{"not authenticated - no claims available"},
+		}, nil
+	case "groups":
+		// Live executeGroups always includes handler, groups, and count.
+		data["handler"] = handlerName
+		data["groups"] = []string{}
+		data["count"] = 0
+	case "list":
+		// Live executeList never includes a handler key.
+		data["handlers"] = []map[string]any{}
+		data["count"] = 0
+	default:
+		return nil, fmt.Errorf("%s: unsupported operation: %s", ProviderName, operation)
+	}
+
+	return &sdkprovider.Output{
+		Data: data,
+	}, nil
 }

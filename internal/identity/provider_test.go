@@ -12,6 +12,7 @@ import (
 
 	sdkplugin "github.com/oakwood-commons/scafctl-plugin-sdk/plugin"
 	"github.com/oakwood-commons/scafctl-plugin-sdk/plugin/proto"
+	sdkprovider "github.com/oakwood-commons/scafctl-plugin-sdk/provider"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -956,4 +957,144 @@ func TestMockAuthClient_Defaults(t *testing.T) {
 	groups, err := mock.GetAuthGroups(ctx, "")
 	require.NoError(t, err)
 	assert.Nil(t, groups)
+}
+
+func TestExecuteProvider_DryRun(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		inputs       map[string]any
+		wantErr      bool
+		errContains  string
+		wantWarnings []string
+		checkOutput  func(t *testing.T, out map[string]any)
+	}{
+		{
+			name:   "status operation",
+			inputs: map[string]any{"operation": "status"},
+			checkOutput: func(t *testing.T, out map[string]any) {
+				t.Helper()
+				assert.Equal(t, "status", out["operation"])
+				assert.Equal(t, false, out["authenticated"])
+				// handler always present (empty string when not provided)
+				assert.Equal(t, "", out["handler"])
+				assert.NotContains(t, out, "identityType")
+			},
+		},
+		{
+			name:   "status with handler",
+			inputs: map[string]any{"operation": "status", "handler": "entra"},
+			checkOutput: func(t *testing.T, out map[string]any) {
+				t.Helper()
+				assert.Equal(t, "status", out["operation"])
+				assert.Equal(t, "entra", out["handler"])
+				assert.NotContains(t, out, "identityType")
+			},
+		},
+		{
+			name:   "status with scope",
+			inputs: map[string]any{"operation": "status", "scope": "api://test"},
+			checkOutput: func(t *testing.T, out map[string]any) {
+				t.Helper()
+				assert.Equal(t, "status", out["operation"])
+				// handler always present even with scope
+				assert.Equal(t, "", out["handler"])
+				assert.Equal(t, true, out["scopedToken"])
+				assert.Equal(t, "api://test", out["tokenScope"])
+			},
+		},
+		{
+			name:         "claims operation",
+			inputs:       map[string]any{"operation": "claims"},
+			wantWarnings: []string{"not authenticated - no claims available"},
+			checkOutput: func(t *testing.T, out map[string]any) {
+				t.Helper()
+				assert.Equal(t, "claims", out["operation"])
+				assert.Equal(t, false, out["authenticated"])
+				// handler always present (empty string when not provided)
+				assert.Equal(t, "", out["handler"])
+				assert.Nil(t, out["claims"])
+			},
+		},
+		{
+			name:         "claims with scope",
+			inputs:       map[string]any{"operation": "claims", "scope": "api://test"},
+			wantWarnings: []string{"not authenticated - no claims available"},
+			checkOutput: func(t *testing.T, out map[string]any) {
+				t.Helper()
+				assert.Equal(t, "claims", out["operation"])
+				// handler always present even with scope
+				assert.Equal(t, "", out["handler"])
+				assert.Equal(t, true, out["scopedToken"])
+				assert.Equal(t, "api://test", out["tokenScope"])
+				assert.Nil(t, out["claims"])
+			},
+		},
+		{
+			name:   "groups operation",
+			inputs: map[string]any{"operation": "groups"},
+			checkOutput: func(t *testing.T, out map[string]any) {
+				t.Helper()
+				assert.Equal(t, "groups", out["operation"])
+				// handler always present (empty string when not provided)
+				assert.Equal(t, "", out["handler"])
+				groups, ok := out["groups"].([]string)
+				require.True(t, ok, "groups should be []string")
+				assert.Empty(t, groups)
+				assert.Equal(t, 0, out["count"])
+			},
+		},
+		{
+			name:   "list operation",
+			inputs: map[string]any{"operation": "list"},
+			checkOutput: func(t *testing.T, out map[string]any) {
+				t.Helper()
+				assert.Equal(t, "list", out["operation"])
+				// list never includes a handler key (matches live executeList)
+				assert.NotContains(t, out, "handler")
+				handlers, ok := out["handlers"].([]map[string]any)
+				require.True(t, ok, "handlers should be []map[string]any")
+				assert.Empty(t, handlers)
+				assert.Equal(t, 0, out["count"])
+			},
+		},
+		{
+			name:        "unsupported operation",
+			inputs:      map[string]any{"operation": "invalid"},
+			wantErr:     true,
+			errContains: "unsupported operation",
+		},
+		{
+			name:        "scope with groups rejected before dry-run",
+			inputs:      map[string]any{"operation": "groups", "scope": "api://test"},
+			wantErr:     true,
+			errContains: "scope is not supported",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := NewPlugin()
+			ctx := sdkprovider.WithDryRun(context.Background(), true)
+
+			out, err := p.ExecuteProvider(ctx, ProviderName, tc.inputs)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errContains)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, out)
+			data, ok := out.Data.(map[string]any)
+			require.True(t, ok, "output Data should be map[string]any")
+			if tc.wantWarnings != nil {
+				assert.Equal(t, tc.wantWarnings, out.Warnings)
+			}
+			tc.checkOutput(t, data)
+		})
+	}
 }
