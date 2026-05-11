@@ -5,7 +5,7 @@ go 1.26.2
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/google/jsonschema-go v0.4.3
-	github.com/oakwood-commons/scafctl-plugin-sdk v0.4.0
+	github.com/oakwood-commons/scafctl-plugin-sdk v0.5.0
 	github.com/stretchr/testify v1.11.1
 )
 
@@ -25,7 +25,7 @@ require (
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260427160629-7cedc36a6bc4 // indirect
-	google.golang.org/grpc v1.80.0 // indirect
+	google.golang.org/grpc v1.81.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
