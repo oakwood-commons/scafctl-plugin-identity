@@ -67,10 +67,11 @@ jobs:
       - name: Install crane
         uses: imjasonh/setup-crane@6da1ae018866400525525ce74ff892880c099987 # v0.5
 
-      - name: Login to GitHub Container Registry
+      - name: Authenticate scafctl with GitHub Container Registry
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p ~/.docker
-          echo '{"auths":{"ghcr.io":{"auth":"'"$(echo -n "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" | base64)"'"}}}' > ~/.docker/config.json
+          scafctl auth login github --flow pat --registry ghcr.io --write-registry-auth
 
       - name: Download release archives
         env:
