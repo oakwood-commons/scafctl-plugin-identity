@@ -72,13 +72,20 @@ resolvers:
 | `groups` | Returns group memberships for the current identity |
 | `list` | Lists available auth handlers and the default handler |
 
+> **Device-code sessions require a `scope`.** When the host has no cached ID
+> token (common with the Entra device-code flow), `claims` and `status` cannot
+> derive an identity on their own and return the unauthenticated fallback with a
+> warning. Supply a `scope` (e.g., `api://<app-id>/.default`) so the provider
+> mints a scoped token and parses identity from it. Without a scope, downstream
+> auth-gated resolvers are disabled.
+
 ### Inputs
 
 | Input | Required | Description |
 |-------|----------|-------------|
 | `operation` | Yes | One of: `status`, `claims`, `groups`, `list` |
 | `handler` | No | Auth handler name (uses default if omitted) |
-| `scope` | No | OAuth scope for token requests (triggers scoped token flow) |
+| `scope` | No | OAuth scope for token requests (triggers scoped token flow). Required for device-code/token-only sessions where no ID token is cached; without it, `claims`/`status` return the unauthenticated fallback. |
 
 ## Development
 

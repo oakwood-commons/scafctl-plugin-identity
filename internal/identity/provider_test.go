@@ -541,6 +541,8 @@ func TestExecute_Status_NotAuthenticated(t *testing.T) {
 	require.NoError(t, err)
 	data := out.Data.(map[string]any)
 	assert.False(t, data["authenticated"].(bool))
+	require.NotEmpty(t, out.Warnings)
+	assert.Contains(t, out.Warnings[0], "provide a 'scope' input")
 }
 
 func TestExecute_Status_Error(t *testing.T) {
@@ -599,7 +601,8 @@ func TestExecute_Claims_NotAuthenticated(t *testing.T) {
 	data := out.Data.(map[string]any)
 	assert.False(t, data["authenticated"].(bool))
 	assert.Nil(t, data["claims"])
-	assert.NotEmpty(t, out.Warnings)
+	require.NotEmpty(t, out.Warnings)
+	assert.Contains(t, out.Warnings[0], "provide a 'scope' input")
 }
 
 func TestExecute_Claims_Error(t *testing.T) {
@@ -971,8 +974,9 @@ func TestExecuteProvider_DryRun(t *testing.T) {
 		checkOutput  func(t *testing.T, out map[string]any)
 	}{
 		{
-			name:   "status operation",
-			inputs: map[string]any{"operation": "status"},
+			name:         "status operation",
+			inputs:       map[string]any{"operation": "status"},
+			wantWarnings: []string{unauthenticatedFallbackWarning("")},
 			checkOutput: func(t *testing.T, out map[string]any) {
 				t.Helper()
 				assert.Equal(t, "status", out["operation"])
@@ -1007,7 +1011,7 @@ func TestExecuteProvider_DryRun(t *testing.T) {
 		{
 			name:         "claims operation",
 			inputs:       map[string]any{"operation": "claims"},
-			wantWarnings: []string{"not authenticated - no claims available"},
+			wantWarnings: []string{unauthenticatedFallbackWarning("")},
 			checkOutput: func(t *testing.T, out map[string]any) {
 				t.Helper()
 				assert.Equal(t, "claims", out["operation"])
@@ -1018,9 +1022,8 @@ func TestExecuteProvider_DryRun(t *testing.T) {
 			},
 		},
 		{
-			name:         "claims with scope",
-			inputs:       map[string]any{"operation": "claims", "scope": "api://test"},
-			wantWarnings: []string{"not authenticated - no claims available"},
+			name:   "claims with scope",
+			inputs: map[string]any{"operation": "claims", "scope": "api://test"},
 			checkOutput: func(t *testing.T, out map[string]any) {
 				t.Helper()
 				assert.Equal(t, "claims", out["operation"])

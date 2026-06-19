@@ -70,7 +70,7 @@ func NewPlugin() *Plugin {
 					sdkhelper.WithMaxLength(maxHandlerLen),
 					sdkhelper.WithPattern(`^[a-z][a-z0-9-]*$`),
 					sdkhelper.WithExample("entra")),
-				"scope": sdkhelper.StringProp("OAuth scope for scoped token operations. When set, 'claims' and 'status' operations mint a token with this scope and return its details instead of stored metadata. Not supported for 'groups' or 'list' operations.",
+				"scope": sdkhelper.StringProp("OAuth scope for scoped token operations. When set, 'claims' and 'status' operations mint a token with this scope and return its details instead of stored metadata. Required for device-code (and other token-only) sessions where no ID token is cached: without a scope, 'claims'/'status' return the unauthenticated fallback and emit a warning. Not supported for 'groups' or 'list' operations.",
 					sdkhelper.WithMaxLength(maxScopeLen),
 					sdkhelper.WithExample("api://my-app/.default")),
 			}),
@@ -263,9 +263,14 @@ func (p *Plugin) executeStatus(ctx context.Context, client authClient, handlerNa
 		"authenticated": claims != nil,
 	}
 
-	if claims != nil {
-		populateStatusFromProtoClaims(result, claims)
+	if claims == nil {
+		return &sdkprovider.Output{
+			Data:     result,
+			Warnings: []string{unauthenticatedFallbackWarning(handlerName)},
+		}, nil
 	}
+
+	populateStatusFromProtoClaims(result, claims)
 
 	return &sdkprovider.Output{Data: result}, nil
 }
@@ -287,7 +292,7 @@ func (p *Plugin) executeClaims(ctx context.Context, client authClient, handlerNa
 		result["claims"] = nil
 		return &sdkprovider.Output{
 			Data:     result,
-			Warnings: []string{"not authenticated - no claims available"},
+			Warnings: []string{unauthenticatedFallbackWarning(handlerName)},
 		}, nil
 	}
 
@@ -583,6 +588,27 @@ func populateStatusFromProtoClaims(result map[string]any, c *proto.Claims) {
 	}
 }
 
+// unauthenticatedFallbackWarning builds an actionable warning explaining why a
+// non-scoped claims/status request returned the unauthenticated fallback. In
+// device-code (and other token-only) sessions the host caches no ID token, so a
+// 'scope' input is required to mint a scoped token from which identity details
+// are derived. Surfacing this warning prevents downstream auth-gated resolvers
+// from being disabled without explanation, which would otherwise be hard to
+// diagnose.
+func unauthenticatedFallbackWarning(handlerName string) string {
+	h := handlerName
+	if h == "" {
+		h = "(default)"
+	}
+	return fmt.Sprintf(
+		"no identity claims available from handler %q: ensure you're authenticated; if the "+
+			"session has no cached ID token (common with device-code or other token-only auth), "+
+			"provide a 'scope' input to derive identity (e.g., scope: api://<app-id>/.default). "+
+			"Returning unauthenticated fallback.",
+		h,
+	)
+}
+
 // executeDryRun returns synthetic output for dry-run mode.
 func executeDryRun(operation, handlerName, scope string) (*sdkprovider.Output, error) {
 	data := map[string]any{
@@ -599,14 +625,27 @@ func executeDryRun(operation, handlerName, scope string) (*sdkprovider.Output, e
 	case "status":
 		// Live executeStatus always includes handler; omits identityType when unauthenticated.
 		data["handler"] = handlerName
+		// Without a scope the live path returns the unauthenticated fallback and
+		// warns that a scope is required (device-code sessions cache no ID token).
+		if scope == "" {
+			return &sdkprovider.Output{
+				Data:     data,
+				Warnings: []string{unauthenticatedFallbackWarning(handlerName)},
+			}, nil
+		}
 	case "claims":
 		// Live executeClaims always includes handler and claims (nil when unauthenticated).
 		data["handler"] = handlerName
 		data["claims"] = nil
-		return &sdkprovider.Output{
-			Data:     data,
-			Warnings: []string{"not authenticated - no claims available"},
-		}, nil
+		// Without a scope the live path returns the unauthenticated fallback and
+		// warns that a scope is required (device-code sessions cache no ID token).
+		if scope == "" {
+			return &sdkprovider.Output{
+				Data:     data,
+				Warnings: []string{unauthenticatedFallbackWarning(handlerName)},
+			}, nil
+		}
+		return &sdkprovider.Output{Data: data}, nil
 	case "groups":
 		// Live executeGroups always includes handler, groups, and count.
 		data["handler"] = handlerName
